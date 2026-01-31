@@ -1,7 +1,5 @@
-import Razorpay from "razorpay";
+import Stripe from "stripe";
 import dotenv from "dotenv";
-import crypto from "crypto";
-import mongoose from "mongoose";
 import Cart from "../models/Cart.js";
 import Address from "../models/Address.js";
 import Order from "../models/Order.js";
@@ -10,102 +8,73 @@ import Payment from "../models/Payment.js";
 
 dotenv.config();
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET
-});
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
-export const initiatePayment = async (req, res) => {
+export const createCheckoutSession = async (req, res) => {
   try {
     const { addressId } = req.body;
+    const userId = req.user.id;
 
     if (!addressId) {
       return res.status(400).json({ success: false, message: "Address ID is required" });
     }
 
-    const address = await Address.findOne({
-      _id: addressId,
-      userId: req.user.id
-    });
+    const cart = await Cart.findOne({ user: userId }).populate("items.product");
 
-    if (!address) {
-      return res.status(400).json({ success: false, message: "Invalid address" });
-    }
-
-    const cartAgg = await Cart.aggregate([
-      { $match: { user: new mongoose.Types.ObjectId(req.user.id) } },
-      { $unwind: "$items" },
-      {
-        $lookup: {
-          from: "products",
-          localField: "items.product",
-          foreignField: "_id",
-          as: "product"
-        }
-      },
-      { $unwind: "$product" },
-      {
-        $group: {
-          _id: null,
-          totalBill: {
-            $sum: { $multiply: ["$items.qty", "$product.price"] }
-          }
-        }
-      }
-    ]);
-
-    if (!cartAgg.length) {
+    if (!cart || cart.items.length === 0) {
       return res.status(400).json({ success: false, message: "Cart is empty" });
     }
 
-    const amount = cartAgg[0].totalBill * 100; // Convert to paise
+    const lineItems = cart.items.map((item) => ({
+      price_data: {
+        currency: "inr",
+        product_data: {
+          name: item.product.name,
+          images: [item.product.image],
+        },
+        unit_amount: Math.round(item.product.price * 100),
+      },
+      quantity: item.qty,
+    }));
 
-    const order = await razorpay.orders.create({
-      amount,
-      currency: "INR",
-      receipt: `rcpt_${Date.now()}`
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: lineItems,
+      mode: "payment",
+      success_url: `${process.env.CLIENT_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.CLIENT_URL}/checkout`,
+      metadata: {
+        userId: userId.toString(),
+        addressId: addressId,
+      },
     });
 
     res.status(200).json({
       success: true,
-      message: "Payment order created",
-      data: {
-        razorpayOrder: order,
-        addressId 
-      }
+      id: session.id,
+      url: session.url,
     });
-
   } catch (err) {
-    console.error("Initiate Error:", err);
-    
-    res.status(500).json({ 
-      success: false, 
-      message: "Payment initiation failed",
-      error: err.message
-    }); 
+    console.error("Stripe Session Error:", err);
+    res.status(500).json({ success: false, message: "Payment initiation failed" });
   }
 };
 
 export const verifyPayment = async (req, res) => {
   try {
-    const { 
-      razorpay_order_id, 
-      razorpay_payment_id, 
-      razorpay_signature, 
-      addressId 
-    } = req.body;
+    const { sessionId } = req.body;
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
 
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
-      .update(body.toString())
-      .digest("hex");
-
-    if (expectedSignature !== razorpay_signature) {
-      return res.status(400).json({ success: false, message: "Invalid Payment Signature" });
+    if (session.payment_status !== "paid") {
+      return res.status(400).json({ success: false, message: "Payment not verified" });
     }
 
-    const userId = req.user.id;
+    const { userId, addressId } = session.metadata;
+
+    const existingOrder = await Order.findOne({ "payment.transactionId": session.id });
+    if (existingOrder) {
+      return res.status(200).json({ success: true, message: "Order already placed", orderId: existingOrder._id });
+    }
 
     const addressDoc = await Address.findOne({ _id: addressId, userId: userId });
     if (!addressDoc) return res.status(400).json({ message: "Invalid Address" });
@@ -115,20 +84,31 @@ export const verifyPayment = async (req, res) => {
 
     const totalAmount = cart.items.reduce((acc, item) => acc + (item.product.price * item.qty), 0);
 
+    const orderItems = cart.items.map((item) => ({
+      product: item.product._id,
+      qty: item.qty,
+      priceAtPurchase: item.product.price,
+      image: item.product.image,
+    }));
+
     const newOrder = await Order.create({
       user: userId,
-      items: cart.items.map(item => ({
-        product: item.product._id,
-        qty: item.qty,
-        price: item.product.price
-      })),
+      items: orderItems,
       total: totalAmount,
-      shippingAddress: addressDoc,
+      shippingAddress: {
+        fullName: addressDoc.fullName,
+        mobile: addressDoc.mobile,
+        street: addressDoc.street,
+        city: addressDoc.city,
+        state: addressDoc.state,
+        zipCode: addressDoc.zipCode,
+      },
       payment: {
-        method: "Razorpay",
-        status: "success",
-        transactionId: razorpay_payment_id
-      }
+        method: "Online",
+        status: "paid",
+        transactionId: session.id,
+      },
+      status: "created",
     });
 
     await Payment.create({
@@ -137,16 +117,12 @@ export const verifyPayment = async (req, res) => {
       amount: totalAmount,
       currency: "INR",
       status: "success",
-      paymentMethod: "Razorpay",
-      razorpayOrderId: razorpay_order_id,
-      razorpayPaymentId: razorpay_payment_id,
-      razorpaySignature: razorpay_signature
+      paymentMethod: "Stripe",
+      transactionId: session.id,
     });
 
     for (const item of cart.items) {
-      await Product.findByIdAndUpdate(item.product._id, {
-        $inc: { stock: -item.qty }
-      });
+      await Product.findByIdAndUpdate(item.product._id, { $inc: { stock: -item.qty } });
     }
 
     await Cart.deleteOne({ user: userId });
@@ -154,9 +130,8 @@ export const verifyPayment = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Order placed successfully",
-      orderId: newOrder._id
+      orderId: newOrder._id,
     });
-
   } catch (err) {
     console.error("Verify Error:", err);
     res.status(500).json({ success: false, message: "Server error during verification" });

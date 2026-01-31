@@ -1,22 +1,34 @@
 import express from "express";
-import { upload } from "../middlewares/upload.js";
 import {
   getAllProducts,
   getProductById,
-  getProductsByCategory,
   createProduct,
   updateProductPut,
-  deleteProduct
+  deleteProduct,
 } from "../controllers/productController.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
+import { upload } from "../middlewares/upload.js";
 
 const router = express.Router();
 
 router.get("/", getAllProducts);
-router.get("/category/:category", getProductsByCategory);
+
 router.get("/:id", getProductById);
 
-router.post("/", upload.single("image"), createProduct);
-router.put("/:id", updateProductPut);
-router.delete("/:id", deleteProduct);
+router.post(
+  "/",
+  verifyToken,
+  upload.single("image"),
+  createProduct
+);
+
+router.put(
+  "/:id",
+  verifyToken,
+  upload.single("image"),
+  updateProductPut
+);
+
+router.delete("/:id", verifyToken, deleteProduct);
 
 export default router;

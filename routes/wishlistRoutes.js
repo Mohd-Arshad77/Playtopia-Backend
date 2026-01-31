@@ -1,5 +1,5 @@
 import express from "express";
-import auth from "../middlewares/authMiddleware.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 import {
   getWishlist,
   toggleWishlist
@@ -7,7 +7,8 @@ import {
 
 const router = express.Router();
 
-router.use(auth);
+router.use(verifyToken);
+
 router.get("/", getWishlist);
 router.post("/toggle", toggleWishlist);
 

@@ -1,12 +1,10 @@
 import express from "express";
-import auth from "../middlewares/authMiddleware.js";
-import { initiatePayment, verifyPayment } from "../controllers/paymentController.js";
+import { createCheckoutSession, verifyPayment } from "../controllers/paymentController.js";
+import { verifyToken } from "../middlewares/authMiddleware.js"; 
 
 const router = express.Router();
 
-router.use(auth);
-
-router.post("/create-order", initiatePayment);
-router.post("/verify", verifyPayment);
+router.post("/create-checkout-session", verifyToken, createCheckoutSession);
+router.post("/verify-session", verifyToken, verifyPayment);
 
 export default router;

@@ -5,17 +5,15 @@ import {
   setDefaultAddress, 
   deleteAddress 
 } from "../controllers/addressController.js";
-import auth from "../middlewares/authMiddleware.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 
 const router = express.Router();
 
-router.use(auth);
+router.use(verifyToken);
 
 router.post("/add", addAddress); 
-
-router.get("/", getAddresses);             
-
+router.get("/", getAddresses);            
 router.put("/:id/default", setDefaultAddress); 
-router.delete("/:id", deleteAddress);     
+router.delete("/:id", deleteAddress);    
 
 export default router;

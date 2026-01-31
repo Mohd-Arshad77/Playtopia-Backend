@@ -26,13 +26,12 @@ const PaymentSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ["COD", "Razorpay", "mock"], 
-    default: "Razorpay"
+    // Razorpay മാറ്റി Stripe ആക്കി
+    enum: ["COD", "Stripe", "Online"], 
+    default: "Stripe"
   },
-  
-  razorpayOrderId: { type: String },
-  razorpayPaymentId: { type: String },
-  razorpaySignature: { type: String }
+  // Razorpay fields ഒഴിവാക്കി, പകരം ഒറ്റ ID മതി
+  transactionId: { type: String }
 
 }, { timestamps: true });
 

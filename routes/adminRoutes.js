@@ -1,5 +1,5 @@
 import express from "express";
-import auth from "../middlewares/authMiddleware.js";
+import { verifyToken } from "../middlewares/authMiddleware.js";
 import admin from "../middlewares/adminMiddleware.js";
 import { upload } from "../middlewares/upload.js";
 
@@ -24,7 +24,7 @@ import {
 
 const router = express.Router();
 
-router.use(auth, admin);
+router.use(verifyToken, admin);
 
 router.get("/stats", getAdminStats);
 

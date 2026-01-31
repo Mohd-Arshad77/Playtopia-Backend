@@ -2,7 +2,7 @@ import Cart from "../models/Cart.js";
 import Product from "../models/Product.js";
 
 const sendCartResponse = async (res, cartDoc) => {
-  const cart = await cartDoc.populate("items.product", "name price image");
+  const cart = await cartDoc.populate("items.product", "name price image stock");
   res.status(200).json({
     success: true,
     message: "Cart updated",
@@ -12,7 +12,7 @@ const sendCartResponse = async (res, cartDoc) => {
 
 export const getCart = async (req, res, next) => {
   try {
-    const cart = await Cart.findOne({ user: req.user.id }).populate("items.product");
+    const cart = await Cart.findOne({ user: req.user.id }).populate("items.product", "name price image stock");
     res.status(200).json({
       success: true,
       message: "Cart fetched",
@@ -29,10 +29,10 @@ export const addToCart = async (req, res, next) => {
     const userId = req.user.id;
 
     const product = await Product.findById(productId).select("stock");
-    if (!product) return res.status(404).json({ message: "Product not found" });
+    if (!product) return res.status(404).json({ success: false, message: "Product not found" });
 
     if (qty > product.stock) {
-      return res.status(400).json({ message: "Out of stock" });
+      return res.status(400).json({ success: false, message: "Requested quantity exceeds available stock" });
     }
 
     let cart = await Cart.findOne({ user: userId });
@@ -64,7 +64,6 @@ export const addToCart = async (req, res, next) => {
     }
 
     await sendCartResponse(res, cart);
-
   } catch (err) {
     next(err);
   }
@@ -76,18 +75,17 @@ export const increaseQty = async (req, res, next) => {
     const userId = req.user.id;
 
     const product = await Product.findById(productId).select("stock");
-    
     const cartItem = await Cart.findOne(
-        { user: userId, "items.product": productId },
-        { "items.$": 1 } 
+      { user: userId, "items.product": productId },
+      { "items.$": 1 }
     );
 
-    if (!cartItem) return res.status(404).json({ message: "Item not in cart" });
+    if (!cartItem) return res.status(404).json({ success: false, message: "Item not in cart" });
 
     const currentQty = cartItem.items[0].qty;
 
     if (currentQty + 1 > product.stock) {
-      return res.status(400).json({ message: "Stock limit reached" });
+      return res.status(400).json({ success: false, message: `Stock limit reached! Only ${product.stock} available.` });
     }
 
     const cart = await Cart.findOneAndUpdate(
@@ -108,11 +106,11 @@ export const decreaseQty = async (req, res, next) => {
     const userId = req.user.id;
 
     const cartItem = await Cart.findOne(
-        { user: userId, "items.product": productId },
-        { "items.$": 1 } 
+      { user: userId, "items.product": productId },
+      { "items.$": 1 }
     );
 
-    if (!cartItem) return res.status(404).json({ message: "Item not found" });
+    if (!cartItem) return res.status(404).json({ success: false, message: "Item not found" });
 
     const currentQty = cartItem.items[0].qty;
     let cart;
@@ -137,7 +135,7 @@ export const decreaseQty = async (req, res, next) => {
   }
 };
 
-export const removeItem = async (req, res, next) => {
+export const removeFromCart = async (req, res, next) => {
   try {
     const { productId } = req.params;
 

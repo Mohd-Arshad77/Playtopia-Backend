@@ -82,7 +82,7 @@ export const checkout = async (req, res, next) => {
         zipCode: address.zipCode
       },
       payment: {
-        method: "COD",
+        method: "Online",
         status: "pending"
       }
     });

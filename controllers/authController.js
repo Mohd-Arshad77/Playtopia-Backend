@@ -90,7 +90,7 @@ export const login = async (req, res, next) => {
     res.cookie("token", token, {
       httpOnly: true,
       sameSite: "strict",
-      secure: false, 
+      secure: process.env.NODE_ENV === "production", 
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
@@ -114,11 +114,43 @@ export const logout = (req, res) => {
   res.clearCookie("token", {
     httpOnly: true,
     sameSite: "strict",
-    secure: false
+    secure: process.env.NODE_ENV === "production"
   });
 
   res.status(200).json({
     success: true,
     message: "Logged out successfully"
   });
+};
+
+export const getUserProfile = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    if (user.isBlocked) {
+      return res.status(403).json({
+        success: false,
+        message: "Account is blocked"
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
 };
